@@ -1,0 +1,3 @@
+# flume_spool_dir
+
+flume遍历日志文件目录的source
