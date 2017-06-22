@@ -5,6 +5,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.io.Files;
+import com.zjw.source.SpoolDirectorySourceConfigurationConstants.ConsumeOrder;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.FlumeException;
@@ -12,15 +13,11 @@ import org.apache.flume.annotations.InterfaceAudience;
 import org.apache.flume.annotations.InterfaceStability;
 import org.apache.flume.client.avro.ReliableEventReader;
 import org.apache.flume.serialization.*;
-import com.zjw.source.SpoolDirectorySourceConfigurationConstants.*;
 import org.apache.flume.tools.PlatformDetect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileFilter;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
 import java.nio.charset.Charset;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -33,23 +30,25 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
     private static final Logger logger = LoggerFactory
             .getLogger(ReliableSubDirectoryEventReader.class);
 
-    static final String metaFileName = ".flumespool-main.meta";
+    static final String metaFileName = ".flumespool-main.meta";//被处理文件元数据的存储目录，默认".flumespool"
 
-    private final File spoolDirectory;
-    private final String completedSuffix;
-    private final String deserializerType;
-    private final Context deserializerContext;
-    private final Pattern ignorePattern;
+    private final File spoolDirectory;//监控目录，不能为空，没有默认值
+    private final String completedSuffix;//是文件读取完毕后给完成文件添加的标记后缀，默认是".COMPLETED"；
+    private final String deserializerType;//将文件中的数据序列化成event的方式，默认是“LINE”---org.apache.flume.serialization.LineDeserializer
+    private final Context deserializerContext;//这个主要用在Deserializer中设置编码方式outputCharset和文件每行最大长度maxLineLength。
+    private final Pattern ignorePattern;//忽略符合条件的文件名
     private final File metaFile;
     private final boolean annotateFileName;
     private final boolean annotateBaseName;
-    private final String fileNameHeader;
+    private final String fileNameHeader;//是否在event的Header中添加文件名，boolean类型
     private final String baseNameHeader;
-    private final String deletePolicy;
-    private final Charset inputCharset;
+    private final String deletePolicy;//这是是否删除读取完毕的文件，默认是"never"，就是不删除，目前只支持"never"和“IMMEDIATE”；
+    private final Charset inputCharset;//编码方式，默认是"UTF-8"；
     private final DecodeErrorPolicy decodeErrorPolicy;
     private final ConsumeOrder consumeOrder;
     private final boolean recursiveDirectorySearch;
+    //目录规则,例如：/logs/game_name/zid/sid/par_dt,根据目录规则，解析日志文件路径的对应目录
+    private final String directoryPattern;
 
     private Optional<FileInfo> currentFile = Optional.absent();
     /** Always contains the last file from which lines have been read. **/
@@ -98,7 +97,6 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
         }
 
         for(File file : directory.listFiles(filter)){
-            //if the path is a directory then iterator the path
             if (file.isDirectory()) {
                 candidateFiles.addAll(getCandidateFiles(file));
             }
@@ -122,7 +120,7 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
                                                      String deletePolicy, String inputCharset,
                                                      DecodeErrorPolicy decodeErrorPolicy,
                                                      ConsumeOrder consumeOrder,
-                                                     boolean recursiveDirectorySearch) throws IOException {
+                                                     boolean recursiveDirectorySearch,String directoryPattern) throws IOException {
 
         // Sanity checks
         Preconditions.checkNotNull(spoolDirectory);
@@ -184,6 +182,8 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
         this.decodeErrorPolicy = Preconditions.checkNotNull(decodeErrorPolicy);
         this.consumeOrder = Preconditions.checkNotNull(consumeOrder);
         this.recursiveDirectorySearch = recursiveDirectorySearch;
+        this.directoryPattern = directoryPattern;
+
 
         File trackerDirectory = new File(trackerDirPath);
 
@@ -238,44 +238,71 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
     }
 
     public List<Event> readEvents(int numEvents) throws IOException {
+        //如果没有提交
         if (!committed) {
-            if (!currentFile.isPresent()) {
+            if (!currentFile.isPresent()) {//为空,如果Optional包含非null的引用（引用存在），返回true
                 throw new IllegalStateException("File should not roll when " +
                         "commit is outstanding.");
             }
             logger.info("Last read was never committed - resetting mark position.");
             currentFile.get().getDeserializer().reset();
-        } else {
+            //如果已经提交，则获取下一个文件
+        } else {//已经committed成功，初始committed=True，获取下一个文件
             // Check if new files have arrived since last call
-            if (!currentFile.isPresent()) {
+            if (!currentFile.isPresent()) {//为空，获取下一个文件，初次调用
                 currentFile = getNextFile();
             }
             // Return empty list if no new files
-            if (!currentFile.isPresent()) {
+            if (!currentFile.isPresent()) {//为空，已经没有可读的文件了
                 return Collections.emptyList();
             }
+            //其它的说明是currentFile目前还在读
         }
 
-        EventDeserializer des = currentFile.get().getDeserializer();
-        List<Event> events = des.readEvents(numEvents);
+        /*
+        * 获取配置文件中的字段名和日志组成event body
+        *
+        * */
+        String filepath = currentFile.get().getFile().getPath();
+        //获取文件目录的上一层目录
+        String uppath = filepath.substring(0, filepath.lastIndexOf("/"));
+        //获取上一层目录中的配置文件
+        File schemafile = new File(uppath);
+        String[] filelists = schemafile.list();
+        String schema = readLineFile(uppath+'/'+filelists[0]);
 
-    /* It's possible that the last read took us just up to a file boundary.
-     * If so, try to roll to the next file, if there is one.
-     * Loop until events is not empty or there is no next file in case of 0 byte files */
+        SubLineDeserializer des = currentFile.get().getDeserializer();
+        List<Event> events = des.readEvents(numEvents,schema);//添加event的body,调用序列化方法
+
+        /* It's possible that the last read took us just up to a file boundary.
+        * If so, try to roll to the next file, if there is one.
+        * Loop until events is not empty or there is no next file in case of 0 byte files */
         while (events.isEmpty()) {
             logger.info("Last read took us just up to a file boundary. Rolling to the next file, if there is one.");
-            retireCurrentFile();
-            currentFile = getNextFile();
+            retireCurrentFile();//改名字
+            currentFile = getNextFile();//换下一个文件
             if (!currentFile.isPresent()) {
                 return Collections.emptyList();
             }
-            events = currentFile.get().getDeserializer().readEvents(numEvents);
+            events = currentFile.get().getDeserializer().readEvents(numEvents,schema);//继续读,添加event的body
         }
 
         if (annotateFileName) {
             String filename = currentFile.get().getFile().getAbsolutePath();
+            //获取文件目录
+
+            //拆分路径和规则，配成map放到header中
+            String[] parts = filename.split("/");
+            String[] partPattern = directoryPattern.split("/");
+
+            HashMap map = new HashMap();
+            for(int i=1;i<parts.length;i++){
+                map.put(partPattern[i],parts[i]);
+            }
+            map.put("filename",filename);
+
             for (Event event : events) {
-                event.getHeaders().put(fileNameHeader, filename);
+                event.getHeaders().put(fileNameHeader, map.toString());
             }
         }
 
@@ -303,6 +330,23 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
         if (!committed && currentFile.isPresent()) {
             currentFile.get().getDeserializer().mark();
             committed = true;
+        }
+    }
+
+    public String readLineFile(String filename){
+        try {
+            FileInputStream in = new FileInputStream(filename);
+            InputStreamReader inReader = new InputStreamReader(in, "UTF-8");
+            BufferedReader bufReader = new BufferedReader(inReader);
+            String line = bufReader.readLine();
+            bufReader.close();
+            inReader.close();
+            in.close();
+            return line;
+        } catch (Exception e) {
+            e.printStackTrace();
+            logger.info("读取" + filename + "出错！");
+            return null;
         }
     }
 
@@ -508,8 +552,11 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
         try {
             // roll the meta file, if needed
             String nextPath = file.getPath();
+            // 这里判断是否需要刷新元文件记录每个正在读取的文件信息，最重要的是文件名称，以及当前已经读取到的位置的数据
             PositionTracker tracker =
                     DurablePositionTracker.getInstance(metaFile, nextPath);
+            // 如果tracker中的target与file不是同一个文件，那么说明，是一个新文件
+            // 然后重建tracker
             if (!tracker.getTarget().equals(nextPath)) {
                 tracker.close();
                 deleteMetaFile();
@@ -517,16 +564,19 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
             }
 
             // sanity check
+            // 在此检查构造的tracker是否正确
             Preconditions.checkState(tracker.getTarget().equals(nextPath),
                     "Tracker target %s does not equal expected filename %s",
                     tracker.getTarget(), nextPath);
 
+            // 构造输入流
+            // tracker传进去的作用是：当使用deserializer读取文件行时，会从上次记录的位置开始读取
+            // 所以我们在每读取一行时，需要记录当前行结束时，文件已经读取到的位置，以字节数表示
             ResettableInputStream in =
                     new ResettableFileInputStream(file, tracker,
                             ResettableFileInputStream.DEFAULT_BUF_SIZE, inputCharset,
                             decodeErrorPolicy);
-            EventDeserializer deserializer = EventDeserializerFactory.getInstance
-                    (deserializerType, deserializerContext, in);
+            SubLineDeserializer deserializer = new SubLineDeserializer(deserializerContext, in);
 
             return Optional.of(new FileInfo(file, deserializer));
         } catch (FileNotFoundException e) {
@@ -550,9 +600,9 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
         private final File file;
         private final long length;
         private final long lastModified;
-        private final EventDeserializer deserializer;
+        private final SubLineDeserializer deserializer;
 
-        public FileInfo(File file, EventDeserializer deserializer) {
+        public FileInfo(File file, SubLineDeserializer deserializer) {
             this.file = file;
             this.length = file.length();
             this.lastModified = file.lastModified();
@@ -561,7 +611,7 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
 
         public long getLength() { return length; }
         public long getLastModified() { return lastModified; }
-        public EventDeserializer getDeserializer() { return deserializer; }
+        public SubLineDeserializer getDeserializer() { return deserializer; }
         public File getFile() { return file; }
     }
 
@@ -606,6 +656,8 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
                 SpoolDirectorySourceConfigurationConstants.DEFAULT_CONSUME_ORDER;
 
         private boolean recursiveDirectorySearch = false;
+        private String directoryPattern =
+                SpoolDirectorySourceConfigurationConstants.DEFAULT_DIRECTORY_PATTERN;
 
         public Builder recursiveDirectorySearch(boolean recursiveDirectorySearch) {
             this.recursiveDirectorySearch = recursiveDirectorySearch;
@@ -682,12 +734,17 @@ public class ReliableSubDirectoryEventReader implements ReliableEventReader {
             return this;
         }
 
+        public Builder directoryPattern(String directoryPattern) {
+            this.directoryPattern = directoryPattern;
+            return this;
+        }
+
         public ReliableSubDirectoryEventReader build() throws IOException {
             return new ReliableSubDirectoryEventReader(spoolDirectory, completedSuffix,
                     ignorePattern, trackerDirPath, annotateFileName, fileNameHeader,
                     annotateBaseName, baseNameHeader, deserializerType,
                     deserializerContext, deletePolicy, inputCharset, decodeErrorPolicy,
-                    consumeOrder, recursiveDirectorySearch);
+                    consumeOrder, recursiveDirectorySearch,directoryPattern);
         }
     }
 

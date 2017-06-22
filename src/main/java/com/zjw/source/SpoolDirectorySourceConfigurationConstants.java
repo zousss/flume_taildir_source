@@ -3,11 +3,29 @@ package com.zjw.source;
 /**
  * Created by zjw on 2017/6/19.
  */
+
 import org.apache.flume.serialization.DecodeErrorPolicy;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
 public class SpoolDirectorySourceConfigurationConstants {
+
+    SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd");
+    public String TODAY = df.format(new Date());
+
     /** Directory where files are deposited. */
     public static final String SPOOL_DIRECTORY = "spoolDir";
+    /** Directory Path */
+    public static final String PART1_DIRECTORY = "part1Dir";
+    public static final String DEFAULT_PART1_DIRECTORY = "/logs";
+    public static final String PART2_DIRECTORY = "part2Dir";
+    public static final String DEFAULT_PART2_DIRECTORY = "";
+    public static final String PART3_DIRECTORY = "part2Dir";
+    public static final String DEFAULT_PART3_DIRECTORY = "";
+    public static final String PART4_DIRECTORY = "part2Dir";
+    public static final String DEFAULT_PART4_DIRECTORY = "";
+
 
     /** Suffix appended to files when they are finished being sent. */
     public static final String SPOOLED_FILE_SUFFIX = "fileSuffix";
@@ -80,4 +98,8 @@ public class SpoolDirectorySourceConfigurationConstants {
 
     public static final String CONSUME_ORDER = "consumeOrder";
     public static final ConsumeOrder DEFAULT_CONSUME_ORDER = ConsumeOrder.OLDEST;
+
+    //增加目录配置规则
+    public static final String DIRECTORY_PATTERN = "directoryPattern";
+    public static final String DEFAULT_DIRECTORY_PATTERN = "/";
 }
