@@ -10,7 +10,7 @@
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
-      <module name="flume_spool_dir" target="1.5" />
+      <module name="flume_spool_dir" target="1.8" />
     </bytecodeTargetLevel>
   </component>
 </project>

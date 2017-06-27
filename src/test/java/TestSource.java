@@ -1,5 +1,5 @@
 import com.google.common.collect.Lists;
-import com.zjw.source.FlumeSpoolSubDirectorySource;
+import com.zjw.source.TailSubDirectorySource;
 import org.apache.flume.Channel;
 import org.apache.flume.ChannelSelector;
 import org.apache.flume.Context;
@@ -14,7 +14,7 @@ import org.junit.Test;
  */
 public class TestSource {
 
-    private FlumeSpoolSubDirectorySource source;
+    private TailSubDirectorySource source;
     private Context context;
     private Channel channel;
     private ChannelSelector rcs = new ReplicatingChannelSelector();
@@ -26,7 +26,7 @@ public class TestSource {
         this.context.put("positionDir", TestConstants.POSITION_DIR);
         this.context.put("spoolDir", TestConstants.SPOOL_DIRECTORY);
 
-        source = new FlumeSpoolSubDirectorySource();
+        source = new TailSubDirectorySource();
         channel = new MemoryChannel();
         rcs.setChannels(Lists.newArrayList(channel));
         source.setChannelProcessor(new ChannelProcessor(rcs));
