@@ -218,19 +218,17 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     }
 
     String filename = currentFile.getPath();
-    //获取文件目录
 
     //拆分路径和规则，配成map放到header中
+    //header中的内容不能再嵌套map，否则无法解析
     String[] parts = filename.replaceAll("\\\\","/").split("/");
     String[] partPattern = directoryPattern.replaceAll("\\\\","/").split("/");
-
-    HashMap map = new HashMap();
-    for(int i=1;i<partPattern.length;i++){
-      map.put(partPattern[i],parts[i]);
-    }
-    map.put("file",filename);
+    //为每个event添加header
     for (Event event : events) {
-      event.getHeaders().put("filePattern", map.toString());
+      for(int i=1;i<partPattern.length;i++){
+        event.getHeaders().put(partPattern[i], parts[i]);
+      }
+      event.getHeaders().put("productname","dfdj");
     }
     committed = false;
     return events;
