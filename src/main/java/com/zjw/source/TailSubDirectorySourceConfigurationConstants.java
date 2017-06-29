@@ -14,7 +14,6 @@ public class TailSubDirectorySourceConfigurationConstants {
     /** Directory where files are deposited. */
     public static final String SPOOL_DIRECTORY = "spoolDirectory";
 
-
     /** Path of position file. */
     public static final String POSITION_FILE = "positionFile";
     public static final String DEFAULT_POSITION_FILE = "/.flume/taildir_position.json";

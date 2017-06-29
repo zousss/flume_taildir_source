@@ -123,14 +123,19 @@ public class TailFile {
 
     String[] recordname = schame.split(",");
     String[] recordvalue = newLine.split(",");
-    for ( int i = 0;i<recordname.length;i++){
-      linemap.put(recordname[i],recordvalue[i]);
+    if(recordname.length == recordvalue.length){
+      for ( int i = 0;i<recordname.length;i++){
+        linemap.put(recordname[i],recordvalue[i]);
+      }
+      Event event = EventBuilder.withBody(linemap.toString(), Charsets.UTF_8);
+      if (addByteOffset == true) {
+        event.getHeaders().put(BYTE_OFFSET_HEADER_KEY, posTmp.toString());
+      }
+      return event;
+    }else{
+      logger.debug("Schema {} length is not equal log record length,Please check again!",schame);
+      return null;
     }
-    Event event = EventBuilder.withBody(linemap.toString(), Charsets.UTF_8);
-    if (addByteOffset == true) {
-      event.getHeaders().put(BYTE_OFFSET_HEADER_KEY, posTmp.toString());
-    }
-    return event;
   }
 
   /*按行读取文件*/
@@ -163,11 +168,9 @@ public class TailFile {
   }
 
   public static class CompareByLastModifiedTime implements Comparator<File> {
-
     public int compare(File f1, File f2) {
       return Long.valueOf(f1.lastModified()).compareTo(f2.lastModified());
     }
   }
-
 
 }

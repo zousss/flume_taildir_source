@@ -35,11 +35,14 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public class ReliableTaildirEventReader implements ReliableEventReader {
   private static final Logger logger = LoggerFactory.getLogger(ReliableTaildirEventReader.class);
+  public static final String OS_NAME = System.getProperty("os.name").toLowerCase();
 
   private final File spoolDirectory;
 
@@ -171,15 +174,34 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
      * */
     String filepath = currentFile.getPath();
     //获取文件目录的上一层目录
-    String currentpath = filepath.substring(0, filepath.lastIndexOf("/"));
-    String uppath = currentpath.substring(0, currentpath.lastIndexOf("/"));
+    String separator = File.separator;
+    String currentpath = filepath.substring(0, filepath.lastIndexOf(separator));
+    String uppath = currentpath.substring(0, currentpath.lastIndexOf(separator));
     //获取上一层目录中的配置文件
     File schemafile = new File(uppath);
     String[] filelists = schemafile.list();
     String schema = "";
+    //schema文件名字和表名字对应
     for(String filename : filelists){
       if(filename.matches("(.*)schema")){
-        schema = readLineFile(uppath+'/'+filename);
+          String logname = filepath.substring(filepath.lastIndexOf(separator)+1,filepath.length());
+          Pattern pattern = Pattern.compile("(\\D*)_\\d+.*");
+          Matcher matcher = pattern.matcher(logname);
+          String tablename = "";
+          if(matcher.find()){
+              tablename = matcher.group(1);
+          }else{
+              logger.debug("Lost {} schema file,please check it again!",tablename);
+          }
+
+          String schemaname = tablename+".schema";
+          String schemapath = uppath+separator+schemaname;
+          File sch = new File(schemapath);
+          if (sch.exists()){
+            schema = readLineFile(schemapath);
+          }else {
+            logger.debug("schema {} does not exists,please check again!",schemaname);
+          }
       }
     }
     if (!committed) {
@@ -199,8 +221,8 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     //获取文件目录
 
     //拆分路径和规则，配成map放到header中
-    String[] parts = filename.split("/");
-    String[] partPattern = directoryPattern.split("/");
+    String[] parts = filename.replaceAll("\\\\","/").split("/");
+    String[] partPattern = directoryPattern.replaceAll("\\\\","/").split("/");
 
     HashMap map = new HashMap();
     for(int i=1;i<partPattern.length;i++){
@@ -295,7 +317,12 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
   }
 
   private long getInode(File file) throws IOException {
-    long inode = (long) Files.getAttribute(file.toPath(), "unix:ino");
+    long inode;
+    if (OS_NAME.contains("windows")) {
+      inode = Long.parseLong(WinFileUtil.getFileId(file.toPath().toString()));
+    } else {
+      inode = (long) Files.getAttribute(file.toPath(), "unix:ino");
+    }
     return inode;
   }
 
