@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="CompilerConfiguration">
+    <option name="DEFAULT_COMPILER" value="Eclipse" />
     <annotationProcessing>
       <profile name="Maven default annotation processors profile" enabled="true">
         <sourceOutputDir name="target/generated-sources/annotations" />
@@ -9,8 +10,8 @@
         <module name="flume_spool_dir" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="flume_spool_dir" target="1.8" />
+    <bytecodeTargetLevel target="1.7">
+      <module name="flume_spool_dir" target="1.7" />
     </bytecodeTargetLevel>
   </component>
 </project>

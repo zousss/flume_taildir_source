@@ -32,10 +32,9 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static com.zjw.source.TailSubDirectorySourceConfigurationConstants.BYTE_OFFSET_HEADER_KEY;
 
@@ -61,7 +60,6 @@ public class TailFile {
     this.pos = pos;
     this.lastUpdated = 0L;
     this.needTail = true;
-
   }
 
   public RandomAccessFile getRaf() { return raf; }
@@ -99,10 +97,9 @@ public class TailFile {
     return events;
   }
   /*获取文件指针，seek到相应的位置，开始读取数据*/
-  private Event readEvent(String schame,boolean backoffWithoutNL, boolean addByteOffset) throws IOException {
+  private Event readEvent(String schema,boolean backoffWithoutNL, boolean addByteOffset) throws IOException {
     Long posTmp = raf.getFilePointer();
     String line = readLine();
-
     if (line == null) {
       return null;
     }
@@ -119,21 +116,33 @@ public class TailFile {
     }
 
     String newLine = StringUtils.removeEnd(line, lineSep);
-    Map linemap = new HashMap();
-
-    String[] recordname = schame.split(",");
-    String[] recordvalue = newLine.split(",");
-    if(recordname.length == recordvalue.length){
+    ArrayList jsonmap = new ArrayList();
+    //20170802修改split("")为split("",-1)
+    String[] recordname = schema.split(",",-1);
+    String[] recordvalue = newLine.split(",",-1);
+    //20170802schema中的字段数，不能超过日志文件中的记录数
+    //20180803schema中定义需要跳过的字段，用SKIP标记
+    if(recordname.length <= recordvalue.length){
       for ( int i = 0;i<recordname.length;i++){
-        linemap.put(recordname[i],recordvalue[i]);
+        //logger.info("******** recordname[i] {} ********",recordname[i]);
+        if(recordname[i].equals("SKIP")){
+          continue;
+        }else{
+          if(recordname[i].split(" ")[1].matches("string")){
+            jsonmap.add("\""+recordname[i].split(" ")[0]+"\""+":"+"\""+recordvalue[i]+"\"");
+          }else{
+            jsonmap.add("\""+recordname[i].split(" ")[0]+"\""+":"+recordvalue[i]);
+          }
+        }
       }
-      Event event = EventBuilder.withBody(linemap.toString(), Charsets.UTF_8);
+      //logger.info("******** schema {} ********",jsonmap.toString().replace("[\"","{\"").replaceAll("]$","}"));
+      Event event = EventBuilder.withBody(jsonmap.toString().replace("[\"","{\"").replaceAll("]$","}"), Charsets.UTF_8);
       if (addByteOffset == true) {
         event.getHeaders().put(BYTE_OFFSET_HEADER_KEY, posTmp.toString());
       }
       return event;
     }else{
-      logger.debug("Schema {} length is not equal log record length,Please check again!",schame);
+      logger.error("Schema {} length is bigger then log record length,Please check again!",schema);
       return null;
     }
   }

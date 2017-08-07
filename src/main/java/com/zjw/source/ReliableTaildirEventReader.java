@@ -34,6 +34,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Files;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -199,8 +201,9 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
           File sch = new File(schemapath);
           if (sch.exists()){
             schema = readLineFile(schemapath);
+            //logger.info("******** schema {} ********",schema);
           }else {
-            logger.debug("schema {} does not exists,please check again!",schemaname);
+            logger.error("schema {} does not exists,please check again!",schemaname);
           }
       }
     }
@@ -226,9 +229,27 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     //为每个event添加header
     for (Event event : events) {
       for(int i=1;i<partPattern.length;i++){
+        //获取日志文件中的日期信息往event header 中添加timestamp
+        if(partPattern[i].endsWith("logname")){
+          Pattern pattern = Pattern.compile("\\D*_(\\d+)_(\\d+).log");
+          Matcher matcher = pattern.matcher(parts[i]);
+          String timestamp = "";
+          if(matcher.find()){
+            String date = matcher.group(1);
+            String hour = matcher.group(2);
+            String datehour = date+hour;
+            SimpleDateFormat format =  new SimpleDateFormat("yyyyMMddHH");
+            try {
+              Date intdate = format.parse(datehour);
+              timestamp = String.valueOf(intdate.getTime());
+            } catch (ParseException e) {
+              e.printStackTrace();
+            }
+          }
+          event.getHeaders().put("timestamp",timestamp);
+        }
         event.getHeaders().put(partPattern[i], parts[i]);
       }
-      event.getHeaders().put("productname","dfdj");
     }
     committed = false;
     return events;
@@ -260,13 +281,15 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
 
     updateTime = System.currentTimeMillis();
     List<Long> updatedInodes = Lists.newArrayList();
-      for (File f : getMatchFiles(spoolDirectory)) {
+    //获取带监控的目录
+
+      for (File f : getMatchFiles( spoolDirectory)) {
         long inode = getInode(f);
         TailFile tf = tailFiles.get(inode);
         if (tf == null || !tf.getPath().equals(f.getAbsolutePath())) {
           long startPos = skipToEnd ? f.length() : 0;
           tf = openFile(f, inode, startPos);
-        } else{
+        } else {
           boolean updated = tf.getLastUpdated() < f.lastModified();
           if (updated) {
             if (tf.getRaf() == null) {
@@ -274,7 +297,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
             }
             if (f.length() < tf.getPos()) {
               logger.info("Pos " + tf.getPos() + " is larger than file size! "
-                  + "Restarting from pos 0, file: " + tf.getPath() + ", inode: " + inode);
+                      + "Restarting from pos 0, file: " + tf.getPath() + ", inode: " + inode);
               tf.updatePos(tf.getPath(), inode, 0);
             }
           }
@@ -312,6 +335,32 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     Collections.sort(result, new TailFile.CompareByLastModifiedTime());
     //logger.info("**********result********** {}",result);
     return result;
+  }
+
+  /*获取所有满足的文件夹*/
+  private List<String> getMatchDirectories(File parentDir) {
+    //读取文件夹下和子文件夹下的所有满足的xxxx.log文件
+    Set<String> candidateDirectories = new HashSet<String>();
+
+    if (parentDir==null || ! parentDir.isDirectory()){
+      return null;
+    }
+
+    for(File file : parentDir.listFiles()){
+      if (file.isDirectory()) {
+        candidateDirectories.addAll(getMatchDirectories(file));
+      }
+      else {
+        if (file.getName().toString().matches("(.*)log")){
+          candidateDirectories.add(file.getParent());
+        }
+      }
+    }
+    ArrayList<String> result = Lists.newArrayList(candidateDirectories);
+    Collections.sort(result);
+    logger.info("**********result********** {}",result);
+    List<String> candidateDirectoriesList = new ArrayList<String>(candidateDirectories);
+    return candidateDirectoriesList;
   }
 
   private long getInode(File file) throws IOException {

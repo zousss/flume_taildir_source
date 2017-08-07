@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -54,6 +55,10 @@ public class TailSubDirectorySource extends AbstractSource implements
     private List<Long> idleInodes = new CopyOnWriteArrayList<Long>();
     private Long backoffSleepIncrement;
     private Long maxBackOffSleepInterval;
+
+    private Map<String, String> last_pos_map = new HashMap<String, String>();
+    private static final String COMMA = ",";
+
 
     @Override
     public synchronized void start() {
@@ -152,14 +157,25 @@ public class TailSubDirectorySource extends AbstractSource implements
             /*添加待监控的文件*/
             existingInodes.clear();
             existingInodes.addAll(reader.updateTailFiles());
+            //读取status_file,获取该文件夹下最后读取的文件
+            logger.info("**********existingInodes********** {}",existingInodes);
             for (long inode : existingInodes) {
                 TailFile tf = reader.getTailFiles().get(inode);
                 /*如果文件需要被监控*/
+                //logger.info("**********existingInodes********** {}",inode);
                 if (tf.needTail()) {
                     /*读取文件生成events*/
                     tailFileProcess(tf, true);
+                    //记录该文件夹下读到的最后一个文件的位置
+                    //logger.info("******Path {},FileName {},{}*******",tf.getPath(),tf.getPos());
+                    String parentDir = tf.getPath().substring(0, tf.getPath().lastIndexOf(File.separator));
+                    String fileName = tf.getPath().substring(tf.getPath().lastIndexOf(File.separator));
+                    String fileLoc = fileName+COMMA+tf.getPos();
+                    logger.info("**********tailFile********** {}",tf.getPath());
+                    last_pos_map.put(parentDir,fileLoc);
                 }
             }
+            //logger.info("**********last_pos_map********** {}",last_pos_map.toString());
             closeTailFiles();
             try {
                 TimeUnit.MILLISECONDS.sleep(retryInterval);
