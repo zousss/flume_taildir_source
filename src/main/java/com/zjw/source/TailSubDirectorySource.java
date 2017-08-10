@@ -2,11 +2,7 @@ package com.zjw.source;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Table;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.google.gson.Gson;
 import org.apache.flume.*;
 import org.apache.flume.conf.Configurable;
 import org.apache.flume.instrumentation.SourceCounter;
@@ -14,13 +10,15 @@ import org.apache.flume.source.AbstractSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import java.io.*;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static com.zjw.source.TailSubDirectorySourceConfigurationConstants.*;
 
@@ -58,7 +56,12 @@ public class TailSubDirectorySource extends AbstractSource implements
 
     private Map<String, String> last_pos_map = new HashMap<String, String>();
     private static final String COMMA = ",";
+    private static final String EMPTY = "";
 
+    private File status_file;
+    Writer status_writer;
+    Reader status_reader;
+    private String status_fn;
 
     @Override
     public synchronized void start() {
@@ -75,16 +78,6 @@ public class TailSubDirectorySource extends AbstractSource implements
         } catch (IOException e) {
             throw new FlumeException("Error instantiating ReliableTaildirEventReader", e);
         }
-        /*check idle file*/
-        idleFileChecker = Executors.newSingleThreadScheduledExecutor(
-                new ThreadFactoryBuilder().setNameFormat("idleFileChecker").build());
-        idleFileChecker.scheduleWithFixedDelay(new idleFileCheckerRunnable(),
-                idleTimeout, checkIdleInterval, TimeUnit.MILLISECONDS);
-        /*write position*/
-        positionWriter = Executors.newSingleThreadScheduledExecutor(
-                new ThreadFactoryBuilder().setNameFormat("positionWriter").build());
-        positionWriter.scheduleWithFixedDelay(new PositionWriterRunnable(),
-                writePosInitDelay, writePosInterval, TimeUnit.MILLISECONDS);
 
         super.start();
         logger.debug("TaildirSource started");
@@ -103,7 +96,6 @@ public class TailSubDirectorySource extends AbstractSource implements
                 }
             }
             // write the last position
-            writePosition();
             reader.close();
         } catch (InterruptedException e) {
             logger.info("Interrupted while awaiting termination", e);
@@ -127,6 +119,8 @@ public class TailSubDirectorySource extends AbstractSource implements
         spoolDirectory = context.getString(SPOOL_DIRECTORY);
         Preconditions.checkState(spoolDirectory != null, "Configuration must specify a spooling directory");
 
+        status_fn = context.getString(STATUS_FN);
+        status_file = new File(status_fn);
         directoryPattern = context.getString(DIRECTORY_PATTERN,DEFAULT_DIRECTORY_PATTERN);
         String homePath = System.getProperty("user.home").replace('\\', '/');
         positionFilePath = context.getString(POSITION_FILE, homePath + DEFAULT_POSITION_FILE);
@@ -155,28 +149,51 @@ public class TailSubDirectorySource extends AbstractSource implements
         Status status = Status.READY;
         try {
             /*添加待监控的文件*/
-            existingInodes.clear();
-            existingInodes.addAll(reader.updateTailFiles());
             //读取status_file,获取该文件夹下最后读取的文件
-            logger.info("**********existingInodes********** {}",existingInodes);
-            for (long inode : existingInodes) {
-                TailFile tf = reader.getTailFiles().get(inode);
-                /*如果文件需要被监控*/
-                //logger.info("**********existingInodes********** {}",inode);
-                if (tf.needTail()) {
-                    /*读取文件生成events*/
-                    tailFileProcess(tf, true);
-                    //记录该文件夹下读到的最后一个文件的位置
-                    //logger.info("******Path {},FileName {},{}*******",tf.getPath(),tf.getPos());
+            //获取到所有文件夹，循环读取文件夹下的内容
+            List<String> directories = reader.getMatchDirectories(new File(spoolDirectory));
+            for (String tailDirectory : directories){
+                //logger.info("******tailDirectory******** {}",tailDirectory);
+                String file_loc = getLastPos(tailDirectory);
+                if (file_loc.equals("")){
+                    //如果位置文件是空的，则从头开始读
+                    existingInodes.clear();
+                    existingInodes.addAll(reader.updateTailFiles(tailDirectory,""));
+                }else{
+                    //如果位置文件中记录的偏移量信息，则从记录的地方开始读
+                    String file_name = file_loc.split(COMMA)[0];
+                    existingInodes.clear();
+                    existingInodes.addAll(reader.updateTailFiles(tailDirectory,file_name));
+                }
+                //logger.info("********existingInodes******** {}",existingInodes.toString());
+                for (long inode : existingInodes) {
+                    TailFile tf = reader.getTailFiles().get(inode);
+                    //logger.info("**********Inodes********** {}",inode);
+                    //logger.info("**********getTailFiles********** {}",reader.getTailFiles().toString());
+                    //如果文件日期大于记录文件中的日志,则读取文件内容
+                    //logger.info("******Compare File******** {}",tf.toString());
                     String parentDir = tf.getPath().substring(0, tf.getPath().lastIndexOf(File.separator));
                     String fileName = tf.getPath().substring(tf.getPath().lastIndexOf(File.separator));
-                    String fileLoc = fileName+COMMA+tf.getPos();
-                    logger.info("**********tailFile********** {}",tf.getPath());
-                    last_pos_map.put(parentDir,fileLoc);
+                    if (tf.getPath().compareToIgnoreCase((tailDirectory+file_loc))> 0) {
+                        //logger.info("******Compare File******** {}",tf.getPath());
+                        /*读取文件生成events*/
+                        tf.setLine_pos(0L);
+                        tailFileProcess(tf,true);
+                        //记录该文件夹下读到的最后一个文件的位置
+                        //logger.info("******Path {},FileName {},{}*******",tf.getPath(),tf.getPos());
+                        String fileLoc = fileName + COMMA + tf.getLine_pos();
+                        setLastPos(parentDir,fileLoc);
+                    }
+                    //如果记录文件等于日志文件，则继续判断大小
+                    if (tf.getPath().compareToIgnoreCase((tailDirectory+file_loc.split(",")[0]))== 0) {
+
+                        tf.setLine_pos(Long.parseLong(file_loc.split(",")[1]));
+                        tailFileProcess(tf,false);
+                        String fileLoc = fileName + COMMA + tf.getLine_pos();
+                        setLastPos(parentDir,fileLoc);
+                    }
                 }
             }
-            //logger.info("**********last_pos_map********** {}",last_pos_map.toString());
-            closeTailFiles();
             try {
                 TimeUnit.MILLISECONDS.sleep(retryInterval);
             } catch (InterruptedException e) {
@@ -194,7 +211,9 @@ public class TailSubDirectorySource extends AbstractSource implements
             throws IOException, InterruptedException {
         while (true) {
             reader.setCurrentFile(tf);
+            //logger.info("******FilePath******** {}",tf.getPath());
             List<Event> events = reader.readEvents(batchSize, backoffWithoutNL);
+            //logger.info("-----events---- {}", events.size());
             if (events.isEmpty()) {
                 break;
             }
@@ -220,73 +239,60 @@ public class TailSubDirectorySource extends AbstractSource implements
         }
     }
 
-    private void closeTailFiles() throws IOException, InterruptedException {
-        for (long inode : idleInodes) {
-            TailFile tf = reader.getTailFiles().get(inode);
-            if (tf.getRaf() != null) { // when file has not closed yet
-                tailFileProcess(tf, false);
-                tf.close();
-                logger.info("Closed file: " + tf.getPath() + ", inode: " + inode + ", pos: " + tf.getPos());
-    }
-}
-        idleInodes.clear();
-    }
+    //20170807写入信息到状态文件
+    public boolean setLastPos(String dir, String v) {
 
-    /**
-     * Runnable class that checks whether there are files which should be closed.
-     */
-    private class idleFileCheckerRunnable implements Runnable {
-        public void run() {
-            try {
-                long now = System.currentTimeMillis();
-                for (TailFile tf : reader.getTailFiles().values()) {
-                    if (tf.getLastUpdated() + idleTimeout < now && tf.getRaf() != null) {
-                        idleInodes.add(tf.getInode());
-                    }
-                }
-            } catch (Throwable t) {
-                logger.error("Uncaught exception in IdleFileChecker thread", t);
-            }
-        }
-    }
-
-    /**
-     * Runnable class that writes a position file which has the last read position
-     * of each file.
-     */
-    private class PositionWriterRunnable implements Runnable {
-        public void run() {
-            writePosition();
-        }
-    }
-
-    private void writePosition() {
-        File file = new File(positionFilePath);
-        FileWriter writer = null;
+        //放到map中
+        last_pos_map.put(dir,v);
+        //写入到文件
         try {
-            writer = new FileWriter(file);
-            if (!existingInodes.isEmpty()) {
-                String json = toPosInfoJson();
-                writer.write(json);
+            status_writer = new FileWriter(status_file);
+
+            Iterator<String> it = last_pos_map.keySet().iterator();
+            while (it.hasNext()) {
+                String tn = it.next();
+                String pos = last_pos_map.get(tn);
+                status_writer.write(tn + COMMA + pos + "\n");
             }
-        } catch (Throwable t){
-            logger.error("Failed writing positionFile", t);
-        } finally {
-            try {
-                if (writer != null) writer.close();
-            } catch (IOException e) {
-                logger.error("Error: " + e.getMessage(), e);
-            }
+            status_writer.flush();
+            status_writer.close();
+
+        } catch (Exception e) {
+            logger.error("Error write pos value to status file!!!");
+            e.printStackTrace();
+            return false;
         }
+        return true;
     }
 
-    private String toPosInfoJson() {
-        @SuppressWarnings("rawtypes")
-        List<Map> posInfos = Lists.newArrayList();
-        for (Long inode : existingInodes) {
-            TailFile tf = reader.getTailFiles().get(inode);
-            posInfos.add(ImmutableMap.of("inode", inode, "pos", tf.getPos(), "file", tf.getPath()));
+    public String getLastPos(String dir) {
+        //读取文件
+        try {
+            status_reader = new FileReader(status_file);
+            char[] chars = new char[(int) status_file.length()];
+            status_reader.read(chars);
+            status_reader.close();
+
+            String[] dir_info = new String(chars).split("\n");
+            for (int i = 0; i < dir_info.length; i++) {
+                String[] pos_arr = dir_info[i].trim().split(COMMA);
+                if (pos_arr.length == 3) {
+                    last_pos_map.put(pos_arr[0], pos_arr[1] + COMMA
+                            + pos_arr[2]);
+                }
+            }
+
+        } catch (Exception e) {
+            logger.error("Error reading pos value from status file!!!");
+            e.printStackTrace();
+            return EMPTY;
         }
-        return new Gson().toJson(posInfos);
+
+        // 从map中获取
+        String ret = last_pos_map.get(dir);
+        if (ret == null) {
+            ret = EMPTY;
+        }
+        return ret;
     }
 }

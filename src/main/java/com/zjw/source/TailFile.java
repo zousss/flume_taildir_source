@@ -50,14 +50,17 @@ public class TailFile {
   private long pos;
   private long lastUpdated;
   private boolean needTail;
+  private Long line_pos;
+  private Long curr_pos = 0L;
 
-  public TailFile(File file, long inode, long pos)
+  public TailFile(File file, long inode, long pos,long line_pos)
       throws IOException {
     this.raf = new RandomAccessFile(file, "r");
     if (pos > 0) raf.seek(pos);
     this.path = file.getAbsolutePath();
     this.inode = inode;
     this.pos = pos;
+    this.line_pos = line_pos;
     this.lastUpdated = 0L;
     this.needTail = true;
   }
@@ -66,34 +69,36 @@ public class TailFile {
   public String getPath() { return path; }
   public long getInode() { return inode; }
   public long getPos() { return pos; }
+  public long getLine_pos() { return line_pos; }
   public long getLastUpdated() { return lastUpdated; }
   public boolean needTail() { return needTail; }
 
   public void setPos(long pos) { this.pos = pos; }
+  public void setLine_pos(Long line_pos) { this.line_pos = line_pos; }
   public void setLastUpdated(long lastUpdated) { this.lastUpdated = lastUpdated; }
   public void setNeedTail(boolean needTail) { this.needTail = needTail; }
 
-  /*更新文件pos信息*/
-  public boolean updatePos(String path, long inode, long pos) throws IOException {
-    if (this.inode == inode && this.path.equals(path)) {
-      raf.seek(pos);
-      setPos(pos);
-      logger.info("Updated position, file: " + path + ", inode: " + inode + ", pos: " + pos);
-      return true;
-    }
-    return false;
-  }
-
+  //20170808增加line_pos，记录读取的行数
   public List<Event> readEvents(String schema,int numEvents, boolean backoffWithoutNL,
       boolean addByteOffset) throws IOException {
     List<Event> events = Lists.newLinkedList();
     for (int i = 0; i < numEvents; i++) {
       Event event = readEvent(schema,backoffWithoutNL, addByteOffset);
       if (event == null) {
-        break;
+              break;
       }
-      events.add(event);
+      //20170808如果当前行小于记录文件中的行数，则不读文件；如果大于，则开始读取
+      if (curr_pos > line_pos){
+        //logger.info("--------Curr_pos {}------line_pos {}",curr_pos,line_pos);
+        //logger.info("--------event------",event.toString());
+        //logger.info("\n--------3.event--[ {} ]----\n",event.getBody().toString(),"\n");
+        events.add(event);
+        line_pos = curr_pos;
+      }
+        curr_pos = curr_pos +1;
+        logger.info("--------Curr_pos {}------line_pos {}",curr_pos,line_pos);
     }
+    //logger.info("--------2.events------ {}",events.size());
     return events;
   }
   /*获取文件指针，seek到相应的位置，开始读取数据*/
@@ -135,14 +140,15 @@ public class TailFile {
           }
         }
       }
-      //logger.info("******** schema {} ********",jsonmap.toString().replace("[\"","{\"").replaceAll("]$","}"));
+      //logger.info("\n******** schema {} ********",jsonmap.toString().replace("[\"","{\"").replaceAll("]$","}"),"\n");
       Event event = EventBuilder.withBody(jsonmap.toString().replace("[\"","{\"").replaceAll("]$","}"), Charsets.UTF_8);
+      //logger.info("\n--------2.event--[ {} ]----\n",event.getBody().toString(),"\n");
       if (addByteOffset == true) {
-        event.getHeaders().put(BYTE_OFFSET_HEADER_KEY, posTmp.toString());
+        event.getHeaders().put(BYTE_OFFSET_HEADER_KEY,posTmp.toString());
       }
       return event;
     }else{
-      logger.error("Schema {} length is bigger then log record length,Please check again!",schema);
+      logger.error("Schema {} length is bigger then log record {} length,Please check again!",schema,newLine);
       return null;
     }
   }
