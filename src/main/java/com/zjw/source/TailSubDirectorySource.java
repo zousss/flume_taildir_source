@@ -2,7 +2,6 @@ package com.zjw.source;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Table;
 import org.apache.flume.*;
 import org.apache.flume.conf.Configurable;
 import org.apache.flume.instrumentation.SourceCounter;
@@ -17,7 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static com.zjw.source.TailSubDirectorySourceConfigurationConstants.*;
@@ -30,31 +28,18 @@ public class TailSubDirectorySource extends AbstractSource implements
     /*config params*/
     private String spoolDirectory;
     private String directoryPattern;
-    private Map<String, String> filePaths;
-    private Table<String, String, String> headerTable;
     private int batchSize;
-    private String positionFilePath;
-    private boolean skipToEnd;
     private boolean byteOffsetHeader;
 
     /*rfeader params*/
     private SourceCounter sourceCounter;
     private ReliableTaildirEventReader reader;
-    private ScheduledExecutorService idleFileChecker;
-    private ScheduledExecutorService positionWriter;
     private int retryInterval = 1000;
     private int maxRetryInterval = 5000;
-    private int idleTimeout;
-    private int checkIdleInterval = 5000;
-    private int writePosInitDelay = 5000;
-    private int writePosInterval;
 
-    private List<Long> existingInodes = new CopyOnWriteArrayList<Long>();
-    private List<Long> idleInodes = new CopyOnWriteArrayList<Long>();
-    private Long backoffSleepIncrement;
-    private Long maxBackOffSleepInterval;
+    private List<String> existingInodes = new CopyOnWriteArrayList<>();
 
-    private Map<String, String> last_pos_map = new HashMap<String, String>();
+    private Map<String, String> last_pos_map = new HashMap<>();
     private static final String COMMA = ",";
     private static final String EMPTY = "";
 
@@ -62,6 +47,11 @@ public class TailSubDirectorySource extends AbstractSource implements
     Writer status_writer;
     Reader status_reader;
     private String status_fn;
+    private String product;
+
+    private String current_dir;
+    private String file_loc;
+
 
     @Override
     public synchronized void start() {
@@ -70,10 +60,9 @@ public class TailSubDirectorySource extends AbstractSource implements
         try {
             reader = new ReliableTaildirEventReader.Builder()
                     .spoolDirectory(directory)
-                    .positionFilePath(positionFilePath)
-                    .skipToEnd(skipToEnd)
                     .addByteOffset(byteOffsetHeader)
                     .directoryPattern(directoryPattern)
+                    .product(product)
                     .build();
         } catch (IOException e) {
             throw new FlumeException("Error instantiating ReliableTaildirEventReader", e);
@@ -88,7 +77,7 @@ public class TailSubDirectorySource extends AbstractSource implements
     public synchronized void stop() {
         try {
             super.stop();
-            ExecutorService[] services = {idleFileChecker, positionWriter};
+            ExecutorService[] services = {};
             for (ExecutorService service : services) {
                 service.shutdown();
                 if (!service.awaitTermination(1, TimeUnit.SECONDS)) {
@@ -96,6 +85,8 @@ public class TailSubDirectorySource extends AbstractSource implements
                 }
             }
             // write the last position
+            //setLastPos(current_dir,file_loc);
+            //logger.info("---------LastPos {} -----------",current_dir+file_loc);
             reader.close();
         } catch (InterruptedException e) {
             logger.info("Interrupted while awaiting termination", e);
@@ -108,9 +99,7 @@ public class TailSubDirectorySource extends AbstractSource implements
 
     @Override
     public String toString() {
-        return String.format("Taildir source: { positionFile: %s, skipToEnd: %s, "
-                        + "byteOffsetHeader: %s, idleTimeout: %s, writePosInterval: %s }",
-                positionFilePath, skipToEnd, byteOffsetHeader, idleTimeout, writePosInterval);
+        return String.format("Taildir source:byteOffsetHeader: %s", byteOffsetHeader);
     }
 
 
@@ -120,20 +109,14 @@ public class TailSubDirectorySource extends AbstractSource implements
         Preconditions.checkState(spoolDirectory != null, "Configuration must specify a spooling directory");
 
         status_fn = context.getString(STATUS_FN);
+        Preconditions.checkNotNull(status_fn);
+
+        product = context.getString(PRODUCT_NAME);
+
         status_file = new File(status_fn);
         directoryPattern = context.getString(DIRECTORY_PATTERN,DEFAULT_DIRECTORY_PATTERN);
-        String homePath = System.getProperty("user.home").replace('\\', '/');
-        positionFilePath = context.getString(POSITION_FILE, homePath + DEFAULT_POSITION_FILE);
         batchSize = context.getInteger(BATCH_SIZE, DEFAULT_BATCH_SIZE);
-        skipToEnd = context.getBoolean(SKIP_TO_END, DEFAULT_SKIP_TO_END);
         byteOffsetHeader = context.getBoolean(BYTE_OFFSET_HEADER, DEFAULT_BYTE_OFFSET_HEADER);
-        idleTimeout = context.getInteger(IDLE_TIMEOUT, DEFAULT_IDLE_TIMEOUT);
-        writePosInterval = context.getInteger(WRITE_POS_INTERVAL, DEFAULT_WRITE_POS_INTERVAL);
-
-        backoffSleepIncrement = context.getLong(BACKOFF_SLEEP_INCREMENT
-                , DEFAULT_BACKOFF_SLEEP_INCREMENT);
-        maxBackOffSleepInterval = context.getLong(MAX_BACKOFF_SLEEP
-                , DEFAULT_MAX_BACKOFF_SLEEP);
 
         if (sourceCounter == null) {
             sourceCounter = new SourceCounter(getName());
@@ -153,8 +136,7 @@ public class TailSubDirectorySource extends AbstractSource implements
             //获取到所有文件夹，循环读取文件夹下的内容
             List<String> directories = reader.getMatchDirectories(new File(spoolDirectory));
             for (String tailDirectory : directories){
-                //logger.info("******tailDirectory******** {}",tailDirectory);
-                String file_loc = getLastPos(tailDirectory);
+                file_loc = getLastPos(tailDirectory);
                 if (file_loc.equals("")){
                     //如果位置文件是空的，则从头开始读
                     existingInodes.clear();
@@ -165,32 +147,37 @@ public class TailSubDirectorySource extends AbstractSource implements
                     existingInodes.clear();
                     existingInodes.addAll(reader.updateTailFiles(tailDirectory,file_name));
                 }
-                //logger.info("********existingInodes******** {}",existingInodes.toString());
-                for (long inode : existingInodes) {
-                    TailFile tf = reader.getTailFiles().get(inode);
-                    //logger.info("**********Inodes********** {}",inode);
-                    //logger.info("**********getTailFiles********** {}",reader.getTailFiles().toString());
+                //logger.info("--------existingInodes {}------ ",existingInodes.toString());
+                for (String fliePath : existingInodes) {
+                    TailFile tf = reader.getTailFiles().get(fliePath);
                     //如果文件日期大于记录文件中的日志,则读取文件内容
-                    //logger.info("******Compare File******** {}",tf.toString());
-                    String parentDir = tf.getPath().substring(0, tf.getPath().lastIndexOf(File.separator));
+                    current_dir = tf.getPath().substring(0, tf.getPath().lastIndexOf(File.separator));
                     String fileName = tf.getPath().substring(tf.getPath().lastIndexOf(File.separator));
                     if (tf.getPath().compareToIgnoreCase((tailDirectory+file_loc))> 0) {
-                        //logger.info("******Compare File******** {}",tf.getPath());
                         /*读取文件生成events*/
                         tf.setLine_pos(0L);
-                        tailFileProcess(tf,true);
-                        //记录该文件夹下读到的最后一个文件的位置
-                        //logger.info("******Path {},FileName {},{}*******",tf.getPath(),tf.getPos());
-                        String fileLoc = fileName + COMMA + tf.getLine_pos();
-                        setLastPos(parentDir,fileLoc);
+                        try {
+                            tailFileProcess(tf,true);
+                            file_loc = fileName + COMMA + tf.getLine_pos();
+                            setLastPos(current_dir,file_loc);
+                        } catch (Throwable t){
+                            //记录该文件夹下读到的最后一个文件的位置
+                            file_loc = fileName + COMMA + tf.getLine_pos();
+                            setLastPos(current_dir,file_loc);
+                        }
                     }
                     //如果记录文件等于日志文件，则继续判断大小
-                    if (tf.getPath().compareToIgnoreCase((tailDirectory+file_loc.split(",")[0]))== 0) {
-
+                    if (tf.getPath().compareToIgnoreCase((tailDirectory+file_loc.split(",")[0])) == 0) {
                         tf.setLine_pos(Long.parseLong(file_loc.split(",")[1]));
-                        tailFileProcess(tf,false);
-                        String fileLoc = fileName + COMMA + tf.getLine_pos();
-                        setLastPos(parentDir,fileLoc);
+                        try {
+                            tailFileProcess(tf,true);
+                            file_loc = fileName + COMMA + tf.getLine_pos();
+                            setLastPos(current_dir,file_loc);
+                        } catch (Throwable t){
+                            //记录该文件夹下读到的最后一个文件的位置
+                            file_loc = fileName + COMMA + tf.getLine_pos();
+                            setLastPos(current_dir,file_loc);
+                        }
                     }
                 }
             }
@@ -211,9 +198,7 @@ public class TailSubDirectorySource extends AbstractSource implements
             throws IOException, InterruptedException {
         while (true) {
             reader.setCurrentFile(tf);
-            //logger.info("******FilePath******** {}",tf.getPath());
             List<Event> events = reader.readEvents(batchSize, backoffWithoutNL);
-            //logger.info("-----events---- {}", events.size());
             if (events.isEmpty()) {
                 break;
             }
@@ -240,7 +225,7 @@ public class TailSubDirectorySource extends AbstractSource implements
     }
 
     //20170807写入信息到状态文件
-    public boolean setLastPos(String dir, String v) {
+    private boolean setLastPos(String dir, String v) {
 
         //放到map中
         last_pos_map.put(dir,v);
@@ -265,7 +250,7 @@ public class TailSubDirectorySource extends AbstractSource implements
         return true;
     }
 
-    public String getLastPos(String dir) {
+    private String getLastPos(String dir) {
         //读取文件
         try {
             status_reader = new FileReader(status_file);

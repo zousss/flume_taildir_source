@@ -46,19 +46,17 @@ public class TailFile {
 
   private RandomAccessFile raf;
   private final String path;
-  private final long inode;
   private long pos;
   private long lastUpdated;
   private boolean needTail;
   private Long line_pos;
-  private Long curr_pos = 0L;
+  private Long curr_pos = 1L;
 
-  public TailFile(File file, long inode, long pos,long line_pos)
+  public TailFile(File file, long pos,long line_pos)
       throws IOException {
     this.raf = new RandomAccessFile(file, "r");
     if (pos > 0) raf.seek(pos);
     this.path = file.getAbsolutePath();
-    this.inode = inode;
     this.pos = pos;
     this.line_pos = line_pos;
     this.lastUpdated = 0L;
@@ -67,12 +65,9 @@ public class TailFile {
 
   public RandomAccessFile getRaf() { return raf; }
   public String getPath() { return path; }
-  public long getInode() { return inode; }
   public long getPos() { return pos; }
   public long getLine_pos() { return line_pos; }
   public long getLastUpdated() { return lastUpdated; }
-  public boolean needTail() { return needTail; }
-
   public void setPos(long pos) { this.pos = pos; }
   public void setLine_pos(Long line_pos) { this.line_pos = line_pos; }
   public void setLastUpdated(long lastUpdated) { this.lastUpdated = lastUpdated; }
@@ -87,18 +82,16 @@ public class TailFile {
       if (event == null) {
               break;
       }
+      //logger.info("--------Curr_pos {}------line_pos {}",curr_pos,line_pos);
       //20170808如果当前行小于记录文件中的行数，则不读文件；如果大于，则开始读取
       if (curr_pos > line_pos){
         //logger.info("--------Curr_pos {}------line_pos {}",curr_pos,line_pos);
-        //logger.info("--------event------",event.toString());
-        //logger.info("\n--------3.event--[ {} ]----\n",event.getBody().toString(),"\n");
         events.add(event);
         line_pos = curr_pos;
+        //setLine_pos(line_pos);
       }
         curr_pos = curr_pos +1;
-        logger.info("--------Curr_pos {}------line_pos {}",curr_pos,line_pos);
     }
-    //logger.info("--------2.events------ {}",events.size());
     return events;
   }
   /*获取文件指针，seek到相应的位置，开始读取数据*/
@@ -108,13 +101,13 @@ public class TailFile {
     if (line == null) {
       return null;
     }
+
     if (backoffWithoutNL && !line.endsWith(LINE_SEP)) {
       logger.info("Backing off in file without newline: "
-          + path + ", inode: " + inode + ", pos: " + raf.getFilePointer());
+          + path + ", pos: " + raf.getFilePointer());
       raf.seek(posTmp);
       return null;
     }
-
     String lineSep = LINE_SEP;
     if(line.endsWith(LINE_SEP_WIN)) {
       lineSep = LINE_SEP_WIN;
@@ -129,7 +122,6 @@ public class TailFile {
     //20180803schema中定义需要跳过的字段，用SKIP标记
     if(recordname.length <= recordvalue.length){
       for ( int i = 0;i<recordname.length;i++){
-        //logger.info("******** recordname[i] {} ********",recordname[i]);
         if(recordname[i].equals("SKIP")){
           continue;
         }else{
@@ -140,9 +132,7 @@ public class TailFile {
           }
         }
       }
-      //logger.info("\n******** schema {} ********",jsonmap.toString().replace("[\"","{\"").replaceAll("]$","}"),"\n");
       Event event = EventBuilder.withBody(jsonmap.toString().replace("[\"","{\"").replaceAll("]$","}"), Charsets.UTF_8);
-      //logger.info("\n--------2.event--[ {} ]----\n",event.getBody().toString(),"\n");
       if (addByteOffset == true) {
         event.getHeaders().put(BYTE_OFFSET_HEADER_KEY,posTmp.toString());
       }
@@ -178,7 +168,7 @@ public class TailFile {
       long now = System.currentTimeMillis();
       setLastUpdated(now);
     } catch (IOException e) {
-      logger.error("Failed closing file: " + path + ", inode: " + inode, e);
+      logger.error("Failed closing file: " + path , e);
     }
   }
 
@@ -187,5 +177,4 @@ public class TailFile {
       return Long.valueOf(f1.lastModified()).compareTo(f2.lastModified());
     }
   }
-
 }
