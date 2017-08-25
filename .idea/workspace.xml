@@ -6,27 +6,8 @@
     </artifacts-to-build>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9a4525f1-7e0e-4c7a-aeed-c976771167ac" name="Default" comment="">
-      <change type="DELETED" beforePath="$PROJECT_DIR$/src/main/java/com/zjw/source/Kernel32.java" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/src/main/java/com/zjw/source/WinFileUtil.java" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/Kernel32$1.class" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/Kernel32$BY_HANDLE_FILE_INFORMATION$ByReference.class" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/Kernel32$BY_HANDLE_FILE_INFORMATION$ByValue.class" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/Kernel32$BY_HANDLE_FILE_INFORMATION.class" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/Kernel32.class" afterPath="" />
-      <change type="DELETED" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/WinFileUtil.class" afterPath="" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/out/artifacts/flume_spool_dir_jar/flume_spool_dir.jar" afterPath="$PROJECT_DIR$/out/artifacts/flume_spool_dir_jar/flume_spool_dir.jar" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/ReliableTaildirEventReader$Builder.class" afterPath="$PROJECT_DIR$/target/classes/com/zjw/source/ReliableTaildirEventReader$Builder.class" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/ReliableTaildirEventReader.class" afterPath="$PROJECT_DIR$/target/classes/com/zjw/source/ReliableTaildirEventReader.class" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/TailFile$CompareByLastModifiedTime.class" afterPath="$PROJECT_DIR$/target/classes/com/zjw/source/TailFile$CompareByLastModifiedTime.class" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/TailFile.class" afterPath="$PROJECT_DIR$/target/classes/com/zjw/source/TailFile.class" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/TailSubDirectorySource.class" afterPath="$PROJECT_DIR$/target/classes/com/zjw/source/TailSubDirectorySource.class" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/target/classes/com/zjw/source/TailSubDirectorySourceConfigurationConstants.class" afterPath="$PROJECT_DIR$/target/classes/com/zjw/source/TailSubDirectorySourceConfigurationConstants.class" />
+    <list default="true" id="9a4525f1-7e0e-4c7a-aeed-c976771167ac" name="Default" comment="fix record file">
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/main/java/com/zjw/source/ReliableTaildirEventReader.java" afterPath="$PROJECT_DIR$/src/main/java/com/zjw/source/ReliableTaildirEventReader.java" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/main/java/com/zjw/source/TailFile.java" afterPath="$PROJECT_DIR$/src/main/java/com/zjw/source/TailFile.java" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/main/java/com/zjw/source/TailSubDirectorySource.java" afterPath="$PROJECT_DIR$/src/main/java/com/zjw/source/TailSubDirectorySource.java" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/src/main/java/com/zjw/source/TailSubDirectorySourceConfigurationConstants.java" afterPath="$PROJECT_DIR$/src/main/java/com/zjw/source/TailSubDirectorySourceConfigurationConstants.java" />
     </list>
     <ignored path="$PROJECT_DIR$/target/" />
     <ignored path="$PROJECT_DIR$/.idea/" />
@@ -259,7 +240,7 @@
     <property name="project.structure.proportion" value="0.15" />
     <property name="project.structure.side.proportion" value="0.2" />
     <property name="last_opened_file_path" value="$PROJECT_DIR$" />
-    <property name="settings.editor.selected.configurable" value="vcs.Git" />
+    <property name="settings.editor.selected.configurable" value="project.propVCSSupport.Mappings" />
     <property name="GenerateAntBuildDialog.enableUiFormCompile" value="true" />
     <property name="GenerateAntBuildDialog.forceTargetJdk" value="true" />
     <property name="GenerateAntBuildDialog.backupFiles" value="true" />
@@ -799,6 +780,9 @@
   <component name="ShelveChangesManager" show_recycled="false">
     <option name="remove_strategy" value="false" />
   </component>
+  <component name="SvnConfiguration">
+    <configuration>C:\Users\1\AppData\Roaming\Subversion</configuration>
+  </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="9a4525f1-7e0e-4c7a-aeed-c976771167ac" name="Default" comment="" />
@@ -905,7 +889,14 @@
       <option name="project" value="LOCAL" />
       <updated>1502350194857</updated>
     </task>
-    <option name="localTasksCounter" value="15" />
+    <task id="LOCAL-00015" summary="fix record file">
+      <created>1503649472615</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1503649472615</updated>
+    </task>
+    <option name="localTasksCounter" value="16" />
     <servers />
   </component>
   <component name="TestHistory">
