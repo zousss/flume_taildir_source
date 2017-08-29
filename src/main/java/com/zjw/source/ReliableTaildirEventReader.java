@@ -182,6 +182,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
         }
         event.getHeaders().put(partPattern[i], parts[i]);
         String log_type = event.getHeaders().get("log_type");
+        event.getHeaders().put("product", product);
         event.getHeaders().put("topic", product+"_"+log_type);
       }
     }
