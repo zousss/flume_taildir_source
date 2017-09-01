@@ -137,6 +137,7 @@ public class TailSubDirectorySource extends AbstractSource implements
             List<String> directories = reader.getMatchDirectories(new File(spoolDirectory));
             for (String tailDirectory : directories){
                 file_loc = getLastPos(tailDirectory);
+                //logger.info("--------File location {}------ ",file_loc);
                 if (file_loc.equals("")){
                     //如果位置文件是空的，则从头开始读
                     existingInodes.clear();
@@ -144,41 +145,50 @@ public class TailSubDirectorySource extends AbstractSource implements
                 }else{
                     //如果位置文件中记录的偏移量信息，则从记录的地方开始读
                     String file_name = file_loc.split(COMMA)[0];
+                    //logger.info("--------start directory {}------ ",tailDirectory);
                     existingInodes.clear();
                     existingInodes.addAll(reader.updateTailFiles(tailDirectory,file_name));
                 }
                 //logger.info("--------existingInodes {}------ ",existingInodes.toString());
+                //20170901需要判断一个文件是否已经读完然后再开始下一个文件的读取
                 for (String fliePath : existingInodes) {
+                    //logger.info("--------0.fliePath {}------ ",fliePath);
                     TailFile tf = reader.getTailFiles().get(fliePath);
                     //如果文件日期大于记录文件中的日志,则读取文件内容
                     current_dir = tf.getPath().substring(0, tf.getPath().lastIndexOf(File.separator));
                     String fileName = tf.getPath().substring(tf.getPath().lastIndexOf(File.separator));
-                    if (tf.getPath().compareToIgnoreCase((tailDirectory+file_loc))> 0) {
-                        /*读取文件生成events*/
-                        tf.setLine_pos(0L);
-                        try {
-                            tailFileProcess(tf,true);
-                            file_loc = fileName + COMMA + tf.getLine_pos();
-                            setLastPos(current_dir,file_loc);
-                        } catch (Throwable t){
-                            //记录该文件夹下读到的最后一个文件的位置
-                            file_loc = fileName + COMMA + tf.getLine_pos();
-                            setLastPos(current_dir,file_loc);
-                        }
-                    }
                     //如果记录文件等于日志文件，则继续判断大小
                     if (tf.getPath().compareToIgnoreCase((tailDirectory+file_loc.split(",")[0])) == 0) {
+                        //logger.info("--------Equal File {}------ ",tf.getPath());
                         tf.setLine_pos(Long.parseLong(file_loc.split(",")[1]));
+                        tf.setPos(Long.parseLong(file_loc.split(",")[2]));
+                        //logger.info("--------Read position {}------ ",tf.getPos());
                         try {
                             tailFileProcess(tf,true);
-                            file_loc = fileName + COMMA + tf.getLine_pos();
+                            file_loc = fileName + COMMA + tf.getLine_pos()+COMMA+tf.getRaf().getFilePointer();
                             setLastPos(current_dir,file_loc);
                         } catch (Throwable t){
                             //记录该文件夹下读到的最后一个文件的位置
-                            file_loc = fileName + COMMA + tf.getLine_pos();
+                            file_loc = fileName + COMMA + tf.getLine_pos()+COMMA+tf.getRaf().getFilePointer();
+                            setLastPos(current_dir,file_loc);
+                            logger.error("-------tailFileProcess error------ ");
+                        }
+                    } else {//如果文件名大于记录文件中的名称
+                        /*读取文件生成events*/
+                        //logger.info("--------Bigger File {}------ ",tf.getPath());
+                        tf.setLine_pos(0L);
+                        tf.setPos(0L);
+                        try {
+                            tailFileProcess(tf,true);
+                            file_loc = fileName + COMMA + tf.getLine_pos()+COMMA+tf.getRaf().getFilePointer();
+                            setLastPos(current_dir,file_loc);
+                        } catch (Throwable t){
+                            //记录该文件夹下读到的最后一个文件的位置
+                            file_loc = fileName + COMMA + tf.getLine_pos()+COMMA+tf.getRaf().getFilePointer();
                             setLastPos(current_dir,file_loc);
                         }
                     }
+
                 }
             }
             try {
@@ -199,7 +209,10 @@ public class TailSubDirectorySource extends AbstractSource implements
         while (true) {
             reader.setCurrentFile(tf);
             List<Event> events = reader.readEvents(batchSize, backoffWithoutNL);
-            if (events.isEmpty()) {
+            //20170831如果上一个文件没有读到记录点位置，返回的events会是null，然后结束该文件读取，这里要添加判断
+            //判断该文件是否结束,通过读取的大小和文件总大小进行判断
+            logger.info("********* current {} ********total {}*******",tf.getRaf().getFilePointer(),tf.getFile_size());
+            if (events.isEmpty() && tf.getRaf().getFilePointer()>=tf.getFile_size()) {
                 break;
             }
             sourceCounter.addToEventReceivedCount(events.size());
@@ -218,7 +231,7 @@ public class TailSubDirectorySource extends AbstractSource implements
             retryInterval = 1000;
             sourceCounter.addToEventAcceptedCount(events.size());
             sourceCounter.incrementAppendBatchAcceptedCount();
-            if (events.size() < batchSize) {
+            if (events.size() < batchSize && tf.getRaf().getFilePointer()>=tf.getFile_size() ) {
                 break;
             }
         }
@@ -261,9 +274,9 @@ public class TailSubDirectorySource extends AbstractSource implements
             String[] dir_info = new String(chars).split("\n");
             for (int i = 0; i < dir_info.length; i++) {
                 String[] pos_arr = dir_info[i].trim().split(COMMA);
-                if (pos_arr.length == 3) {
+                if (pos_arr.length == 4) {
                     last_pos_map.put(pos_arr[0], pos_arr[1] + COMMA
-                            + pos_arr[2]);
+                            + pos_arr[2] + COMMA + pos_arr[3]);
                 }
             }
 

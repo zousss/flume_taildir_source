@@ -51,6 +51,7 @@ public class TailFile {
   private boolean needTail;
   private Long line_pos;
   private Long curr_pos = 1L;
+  private Long file_size = 0L;
 
   public TailFile(File file, long pos,long line_pos)
       throws IOException {
@@ -61,14 +62,17 @@ public class TailFile {
     this.line_pos = line_pos;
     this.lastUpdated = 0L;
     this.needTail = true;
+    this.file_size = file.length();
   }
 
   public RandomAccessFile getRaf() { return raf; }
+  public Long getFile_size() { return file_size; }
   public String getPath() { return path; }
   public long getPos() { return pos; }
   public long getLine_pos() { return line_pos; }
+  public long getCurr_pos() { return curr_pos; }
   public long getLastUpdated() { return lastUpdated; }
-  public void setPos(long pos) { this.pos = pos; }
+  public void setPos(long pos) throws IOException { this.pos = pos;raf.seek(pos); }
   public void setLine_pos(Long line_pos) { this.line_pos = line_pos; }
   public void setLastUpdated(long lastUpdated) { this.lastUpdated = lastUpdated; }
   public void setNeedTail(boolean needTail) { this.needTail = needTail; }
@@ -82,15 +86,14 @@ public class TailFile {
       if (event == null) {
               break;
       }
+      events.add(event);
       //logger.info("--------Curr_pos {}------line_pos {}",curr_pos,line_pos);
       //20170808如果当前行小于记录文件中的行数，则不读文件；如果大于，则开始读取
       if (curr_pos > line_pos){
-        //logger.info("--------Curr_pos {}------line_pos {}",curr_pos,line_pos);
-        events.add(event);
         line_pos = curr_pos;
         //setLine_pos(line_pos);
       }
-        curr_pos = curr_pos +1;
+        curr_pos = curr_pos + 1;
     }
     return events;
   }

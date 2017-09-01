@@ -144,6 +144,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
           if (filename.equalsIgnoreCase(schemaname)){
             schema = readLineFile(schemapath);
             events = currentFile.readEvents(schema,numEvents, backoffWithoutNL, addByteOffset);
+            //logger.info("--------4.tf {}------ ",currentFile.getPath());
           }
           if (!sch.exists()){
               logger.error("schema {} does not exists,please check again!",schemaname);
@@ -266,6 +267,7 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
     }
     ArrayList<File> result = Lists.newArrayList(candidateFiles);
     Collections.sort(result, new TailFile.CompareByLastModifiedTime());
+    //Collections.reverse(result);
     //logger.info("**********result********** {}",result);
     return result;
   }
