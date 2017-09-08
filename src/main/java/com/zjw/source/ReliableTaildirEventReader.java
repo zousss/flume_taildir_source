@@ -295,8 +295,17 @@ public class ReliableTaildirEventReader implements ReliableEventReader {
         candidateDirectories.addAll(getMatchDirectories(file));
       }
       else {
-        if (file.getName().toString().matches("(.*)log")){
-          candidateDirectories.add(file.getParent());
+        if (file.getName().toString().matches("(.*)log") && (!candidateDirectories.contains(file.getParent()))){
+          //判断是否有schema文件，有的话就加入待扫描的数组中
+          String filePath = file.getParent();
+          File schemaFile = new File(filePath+".schema");
+          //logger.info("********** schemaFile {} **********",schemaFile);
+          if(schemaFile.exists()){
+            candidateDirectories.add(file.getParent());
+          }
+          else{
+            logger.warn("********** schemaFile {} does not exists!**********",schemaFile);
+          }
         }
       }
     }

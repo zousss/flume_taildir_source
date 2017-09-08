@@ -188,7 +188,6 @@ public class TailSubDirectorySource extends AbstractSource implements
                             setLastPos(current_dir,file_loc);
                         }
                     }
-
                 }
             }
             try {
@@ -211,7 +210,7 @@ public class TailSubDirectorySource extends AbstractSource implements
             List<Event> events = reader.readEvents(batchSize, backoffWithoutNL);
             //20170831如果上一个文件没有读到记录点位置，返回的events会是null，然后结束该文件读取，这里要添加判断
             //判断该文件是否结束,通过读取的大小和文件总大小进行判断
-            logger.info("********* current {} ********total {}*******",tf.getRaf().getFilePointer(),tf.getFile_size());
+            //logger.info("********* current {} ********total {}*******",tf.getRaf().getFilePointer(),tf.getFile_size());
             if (events.isEmpty() && tf.getRaf().getFilePointer()>=tf.getFile_size()) {
                 break;
             }
@@ -231,6 +230,7 @@ public class TailSubDirectorySource extends AbstractSource implements
             retryInterval = 1000;
             sourceCounter.addToEventAcceptedCount(events.size());
             sourceCounter.incrementAppendBatchAcceptedCount();
+            //判断该文件是否结束,通过读取的大小和文件总大小进行判断
             if (events.size() < batchSize && tf.getRaf().getFilePointer()>=tf.getFile_size() ) {
                 break;
             }
